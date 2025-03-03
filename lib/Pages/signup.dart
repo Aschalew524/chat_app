@@ -18,7 +18,7 @@ class signupPage extends StatelessWidget {
             SizedBox(height: 10),
             CustomTextField(controller: TextEditingController(), hintText: "Confirm Password"),
             SizedBox(height: 20),
-            CustomButton(text: "Sign Up", onPressed: () {}),
+            CustomButton( onPressed: () {}, text: 'SignUp',),
           ],
         ),
       ),

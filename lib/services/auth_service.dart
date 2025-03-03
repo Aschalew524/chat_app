@@ -1,28 +1,25 @@
 import 'package:firebase_auth/firebase_auth.dart';
 
 class AuthService {
-  User? _user; // Declare the _user variable
+  final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
 
-  User? get user {
-    return _user; // Return the stored user
-  }
+  User? get user => _firebaseAuth.currentUser;
 
   Future<bool?> signIn(String email, String password) async {
     try {
       UserCredential userCredential =
-          await FirebaseAuth.instance.signInWithEmailAndPassword(
+          await _firebaseAuth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
       if (userCredential.user != null) {
-        print('User signed in!');
-        _user = userCredential.user; // Store the user
+        print('✅ User signed in: ${userCredential.user!.email}');
         return true;
       }
-      return false; // Explicitly return false if userCredential.user is null
+      return false;
     } catch (e) {
-      print('Error: $e');
-      return null;
+      print('❌ Error: $e'); // Debugging error message
+      return false;
     }
   }
 }
