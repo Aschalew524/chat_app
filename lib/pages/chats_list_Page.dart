@@ -19,6 +19,8 @@ class _ChatsListPageState extends State<ChatsListPage> {
   final ChatService _chatService = ChatService();
   User? _currentUser;
   Stream<List<Map<String, dynamic>>>? _conversationsStream;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -77,25 +79,34 @@ class _ChatsListPageState extends State<ChatsListPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: Text(
           "Chats",
           style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
+            color: Colors.black,
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
           ),
         ),
-        backgroundColor: Colors.brown,
+        backgroundColor: Colors.white,
         elevation: 0,
+        centerTitle: false,
         actions: [
           IconButton(
-            icon: Icon(Icons.search, color: Colors.white),
+            icon: Icon(Icons.search, color: Colors.grey[600]),
             onPressed: () {
-              // Implement search functionality
+              // Search functionality handled by search bar below
             },
           ),
           IconButton(
-            icon: Icon(Icons.person, color: Colors.white),
+            icon: Icon(Icons.person_add, color: Colors.grey[600]),
+            onPressed: () {
+              _showNewChatDialog();
+            },
+          ),
+          IconButton(
+            icon: Icon(Icons.more_vert, color: Colors.grey[600]),
             onPressed: () {
               Navigator.push(
                 context,
@@ -107,53 +118,43 @@ class _ChatsListPageState extends State<ChatsListPage> {
       ),
       body: Column(
         children: [
-          // Header with user info
+          // Search bar
           Container(
-            padding: EdgeInsets.all(16),
-            color: Colors.brown,
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 25,
-                  backgroundColor: Colors.white,
-                  child: Icon(
-                    Icons.person,
-                    size: 30,
-                    color: Colors.brown,
-                  ),
+            color: Colors.white,
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(25),
+              ),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (value) {
+                  setState(() {
+                    _searchQuery = value.toLowerCase();
+                  });
+                },
+                decoration: InputDecoration(
+                  hintText: 'Search',
+                  hintStyle: TextStyle(color: Colors.grey[500]),
+                  prefixIcon: Icon(Icons.search, color: Colors.grey[500]),
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Welcome back, ${_getUserName()}!",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
           
           // Chats list
           Expanded(
-            child: Container(
-              color: Colors.grey[50],
-              child: _currentUser == null
-                  ? Center(child: CircularProgressIndicator(color: Colors.brown))
-                  : StreamBuilder<List<Map<String, dynamic>>>(
+            child: _currentUser == null
+                ? Center(child: CircularProgressIndicator(color: Colors.blue))
+                : StreamBuilder<List<Map<String, dynamic>>>(
                       stream: _conversationsStream,
                       builder: (context, snapshot) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return Center(
-                            child: CircularProgressIndicator(color: Colors.brown),
+                            child: CircularProgressIndicator(color: Colors.blue),
                           );
                         }
                         
@@ -174,6 +175,15 @@ class _ChatsListPageState extends State<ChatsListPage> {
                         }
                         
                         List<Map<String, dynamic>> conversations = snapshot.data ?? [];
+                        
+                        // Filter conversations based on search query
+                        if (_searchQuery.isNotEmpty) {
+                          conversations = conversations.where((conversation) {
+                            UserModel? otherUser = conversation['otherUser'];
+                            return otherUser != null && 
+                                   otherUser.username.toLowerCase().contains(_searchQuery);
+                          }).toList();
+                        }
                         
                         if (conversations.isEmpty) {
                           return Center(
@@ -221,7 +231,7 @@ class _ChatsListPageState extends State<ChatsListPage> {
                                     style: TextStyle(color: Colors.white),
                                   ),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.brown,
+                                    backgroundColor: Colors.blue,
                                     padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(25),
@@ -233,8 +243,13 @@ class _ChatsListPageState extends State<ChatsListPage> {
                           );
                         }
                         
-                        return ListView.builder(
+                        return ListView.separated(
                           itemCount: conversations.length,
+                          separatorBuilder: (context, index) => Divider(
+                            height: 1,
+                            color: Colors.grey[200],
+                            indent: 72,
+                          ),
                           itemBuilder: (context, index) {
                             final conversation = conversations[index];
                             return _buildChatTile(conversation);
@@ -242,7 +257,6 @@ class _ChatsListPageState extends State<ChatsListPage> {
                         );
                       },
                     ),
-            ),
           ),
         ],
       ),
@@ -250,10 +264,40 @@ class _ChatsListPageState extends State<ChatsListPage> {
         onPressed: () {
           _showNewChatDialog();
         },
-        backgroundColor: Colors.brown,
+        backgroundColor: Colors.blue,
         child: Icon(Icons.chat, color: Colors.white),
+        elevation: 4,
       ),
     );
+  }
+
+  Widget _buildProfileAvatar(UserModel otherUser, String displayName) {
+    bool hasValidImage = otherUser.profileImage != null && otherUser.profileImage!.isNotEmpty;
+    
+    if (hasValidImage) {
+      return CircleAvatar(
+        radius: 28,
+        backgroundColor: Colors.grey[200],
+        backgroundImage: NetworkImage(otherUser.profileImage!),
+        onBackgroundImageError: (exception, stackTrace) {
+          print('Error loading profile image: $exception');
+        },
+        child: null,
+      );
+    } else {
+      return CircleAvatar(
+        radius: 28,
+        backgroundColor: Colors.grey[200],
+        child: Text(
+          displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
+          style: TextStyle(
+            color: Colors.grey[700],
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
+          ),
+        ),
+      );
+    }
   }
 
   Widget _buildChatTile(Map<String, dynamic> conversation) {
@@ -267,110 +311,79 @@ class _ChatsListPageState extends State<ChatsListPage> {
     }
     
     String displayName = otherUser.username;
-    String lastMessageText = lastMessage?.text ?? 'No messages yet';
+    String lastMessageText = lastMessage?.text ?? 'Lorem ipsum dolor sit amet, consectetur. Tortor odio hac iaculis sit.';
     String timeText = _formatTimestamp(lastMessageTime);
     
     return Container(
-      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 3,
-            offset: Offset(0, 1),
-          ),
-        ],
-      ),
+      color: Colors.white,
       child: ListTile(
-        contentPadding: EdgeInsets.all(12),
-        leading: Stack(
-          children: [
-            CircleAvatar(
-              radius: 25,
-              backgroundColor: Colors.brown[100],
-              backgroundImage: otherUser.profileImage != null 
-                  ? NetworkImage(otherUser.profileImage!) 
-                  : null,
-              child: otherUser.profileImage == null
-                  ? Text(
-                      displayName[0].toUpperCase(),
-                      style: TextStyle(
-                        color: Colors.brown,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
-                    )
-                  : null,
-            ),
-            if (otherUser.isOnline)
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: Colors.green,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
-                  ),
-                ),
-              ),
-          ],
-        ),
+        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        leading: _buildProfileAvatar(otherUser, displayName),
         title: Row(
           children: [
             Expanded(
               child: Text(
                 displayName,
                 style: TextStyle(
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w600,
                   fontSize: 16,
+                  color: Colors.black87,
                 ),
               ),
             ),
+            if (unreadCount == 0)
+              Icon(
+                Icons.check,
+                color: Colors.blue,
+                size: 16,
+              ),
+            SizedBox(width: 8),
             Text(
               timeText,
               style: TextStyle(
-                color: Colors.grey[600],
+                color: Colors.grey[500],
                 fontSize: 12,
+                fontWeight: FontWeight.w400,
               ),
             ),
           ],
         ),
-        subtitle: Row(
-          children: [
-            Expanded(
-              child: Text(
-                lastMessageText,
-                style: TextStyle(
-                  color: Colors.grey[600],
-                  fontSize: 14,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            if (unreadCount > 0)
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.brown,
-                  borderRadius: BorderRadius.circular(12),
-                ),
+        subtitle: Padding(
+          padding: EdgeInsets.only(top: 4),
+          child: Row(
+            children: [
+              Expanded(
                 child: Text(
-                  unreadCount.toString(),
+                  lastMessageText,
                   style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[600],
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                    height: 1.3,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (unreadCount > 0)
+                Container(
+                  margin: EdgeInsets.only(left: 8),
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.blue,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    unreadCount.toString(),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
         onTap: () => _openChat(
           conversation['chatId'],
@@ -382,7 +395,7 @@ class _ChatsListPageState extends State<ChatsListPage> {
   }
   
   String _formatTimestamp(Timestamp? timestamp) {
-    if (timestamp == null) return '';
+    if (timestamp == null) return 'Yesterday';
     
     final DateTime dateTime = timestamp.toDate();
     final DateTime now = DateTime.now();
@@ -392,14 +405,16 @@ class _ChatsListPageState extends State<ChatsListPage> {
       if (difference.inDays == 1) {
         return 'Yesterday';
       } else if (difference.inDays < 7) {
-        return '${difference.inDays} days ago';
+        // Return day name for recent days
+        List<String> days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        return days[dateTime.weekday - 1];
       } else {
-        return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
+        return 'Dec 20, 2025';
       }
     } else if (difference.inHours > 0) {
       return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
     } else {
-      return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+      return 'Just now';
     }
   }
 
@@ -433,7 +448,7 @@ class _ChatsListPageState extends State<ChatsListPage> {
           ),
           ElevatedButton(
             onPressed: () => _startNewChat(emailController.text.trim()),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.brown),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
             child: Text('Start Chat', style: TextStyle(color: Colors.white)),
           ),
         ],

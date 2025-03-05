@@ -15,6 +15,7 @@ class ChatService {
     // Create a consistent chat ID by sorting user IDs
     List<String> userIds = [userId1, userId2];
     userIds.sort();
+    
     String chatId = '${userIds[0]}_${userIds[1]}';
     
     // Check if chat exists
