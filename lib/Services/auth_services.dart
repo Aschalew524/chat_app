@@ -1,58 +1,115 @@
+
+import 'package:chat_app/Services/user_service.dart';
+import 'package:chat_app/models/user_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final UserService _userService = UserService();
+  final FirebaseStorage _storage = FirebaseStorage.instance;
 
-  // Ensure Firebase is initialized
   Future<void> _ensureInitialized() async {
     try {
       if (Firebase.apps.isEmpty) {
-        print('Firebase not initialized, initializing now...');
-        // This should not happen if main.dart is properly configured
         throw Exception('Firebase not initialized. Please restart the app.');
       }
     } catch (e) {
-      print('Firebase initialization check error: $e');
       throw Exception('Firebase initialization error: $e');
     }
   }
 
-  // Sign up
-  Future<User?> signUp(String email, String password) async {
+  // Upload profile image to Firebase Storage
+  Future<String?> _uploadProfileImage(File imageFile, String userId) async {
+    try {
+      final ref = _storage.ref().child('profile_images').child('$userId.jpg');
+      final uploadTask = ref.putFile(imageFile);
+      final snapshot = await uploadTask;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+      return downloadUrl;
+    } catch (e) {
+      print('Error uploading profile image: $e');
+      return null;
+    }
+  }
+
+  // Upload profile image from bytes (for web)
+  Future<String?> _uploadProfileImageFromBytes(Uint8List imageBytes, String userId) async {
+    try {
+      final ref = _storage.ref().child('profile_images').child('$userId.jpg');
+      final uploadTask = ref.putData(imageBytes);
+      final snapshot = await uploadTask;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+      return downloadUrl;
+    } catch (e) {
+      print('Error uploading profile image from bytes: $e');
+      return null;
+    }
+  }
+
+  // Sign up with email and password
+  Future<UserModel?> signUp(String email, String password, {String? username, File? profileImage, Uint8List? webImageBytes}) async {
     try {
       await _ensureInitialized();
       final result = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
-      print("Signup successful: ${result.user?.email}");
-      return result.user;
+
+      final firebaseUser = result.user;
+      if (firebaseUser == null) return null;
+
+      // Upload profile image if provided
+      String? profileImageUrl;
+      if (kIsWeb && webImageBytes != null) {
+        profileImageUrl = await _uploadProfileImageFromBytes(webImageBytes, firebaseUser.uid);
+      } else if (profileImage != null) {
+        profileImageUrl = await _uploadProfileImage(profileImage, firebaseUser.uid);
+      }
+
+      // Build your UserModel
+      UserModel newUser = UserModel(
+        uid: firebaseUser.uid,
+        username: username ?? email.split('@')[0], // Use email prefix if no username provided
+        email: email,
+        profileImage: profileImageUrl,
+        isOnline: true,
+        lastSeen: Timestamp.now(),
+      );
+
+      // Save user to Firestore via UserService
+      await _userService.saveUser(newUser);
+
+      print("Signup and Firestore save successful: ${newUser.email}");
+      return newUser;
+
     } catch (e) {
       print("Signup Error: $e");
       if (e is FirebaseAuthException) {
         switch (e.code) {
           case 'weak-password':
-            print("The password provided is too weak.");
+            print('The password provided is too weak.');
             break;
           case 'email-already-in-use':
-            print("An account already exists for that email.");
+            print('The account already exists for that email.');
             break;
           case 'invalid-email':
-            print("The email address is invalid.");
-            break;
-          case 'operation-not-allowed':
-            print("Email/password accounts are not enabled.");
+            print('The email address is invalid.');
             break;
           default:
-            print("Signup failed: ${e.message}");
+            print('Signup failed: ${e.message}');
         }
       }
       return null;
     }
   }
 
-  // Sign in
+  // Sign in with email and password
   Future<User?> signIn(String email, String password) async {
     try {
       await _ensureInitialized();
@@ -98,5 +155,15 @@ class AuthService {
     } catch (e) {
       print("Signout Error: $e");
     }
+  }
+
+  // Get current user
+  User? getCurrentUser() {
+    return _auth.currentUser;
+  }
+
+  // Check if user is signed in
+  bool isSignedIn() {
+    return _auth.currentUser != null;
   }
 }

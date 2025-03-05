@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:chat_app/Services/auth_services.dart';
+import 'package:chat_app/Services/chat_service.dart';
+import 'package:chat_app/models/chat_model.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
   
 
 class ChatPage extends StatefulWidget {
   final String chatId;
   final String chatName;
+  final String receiverId;
 
   const ChatPage({
     super.key,
     required this.chatId,
     required this.chatName,
+    required this.receiverId,
   });
 
   @override
@@ -19,44 +25,17 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-
-  // Sample messages - in a real app, this would come from Firebase
-  final List<Map<String, dynamic>> _messages = [
-    {
-      'id': '1',
-      'text': 'Hey, how are you doing?',
-      'isMe': false,
-      'timestamp': '2:30 PM',
-    },
-    {
-      'id': '2',
-      'text': 'I\'m doing great! How about you?',
-      'isMe': true,
-      'timestamp': '2:32 PM',
-    },
-    {
-      'id': '3',
-      'text': 'Pretty good! Just working on some projects.',
-      'isMe': false,
-      'timestamp': '2:33 PM',
-    },
-    {
-      'id': '4',
-      'text': 'That sounds interesting! What kind of projects?',
-      'isMe': true,
-      'timestamp': '2:35 PM',
-    },
-    {
-      'id': '5',
-      'text': 'Mostly mobile app development with Flutter.',
-      'isMe': false,
-      'timestamp': '2:36 PM',
-    },
-  ];
+  final ChatService _chatService = ChatService();
+  User? _currentUser;
+  Stream<List<MessageModel>>? _messagesStream;
 
   @override
   void initState() {
     super.initState();
+    _currentUser = FirebaseAuth.instance.currentUser;
+    if (_currentUser != null) {
+      _messagesStream = _chatService.getChatMessages(widget.chatId);
+    }
     // Scroll to bottom when page loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToBottom();
@@ -80,18 +59,31 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  void _sendMessage() {
-    if (_messageController.text.trim().isNotEmpty) {
-      setState(() {
-        _messages.add({
-          'id': DateTime.now().millisecondsSinceEpoch.toString(),
-          'text': _messageController.text.trim(),
-          'isMe': true,
-          'timestamp': _getCurrentTime(),
-        });
-      });
+  void _sendMessage() async {
+    if (_messageController.text.trim().isNotEmpty && _currentUser != null) {
+      String messageText = _messageController.text.trim();
       _messageController.clear();
-      _scrollToBottom();
+      
+      MessageModel message = MessageModel(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        senderId: _currentUser!.uid,
+        receiverId: widget.receiverId,
+        text: messageText,
+        type: MessageType.text,
+        timestamp: Timestamp.now(),
+      );
+      
+      try {
+        await _chatService.sendTextMessage(widget.chatId, message);
+        _scrollToBottom();
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to send message: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -175,15 +167,82 @@ class _ChatPageState extends State<ChatPage> {
           Expanded(
             child: Container(
               color: Colors.grey[50],
-              child: ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.all(16.0),
-                itemCount: _messages.length,
-                itemBuilder: (context, index) {
-                  final message = _messages[index];
-                  return _buildMessageBubble(message);
-                },
-              ),
+              child: _currentUser == null
+                  ? Center(child: CircularProgressIndicator(color: Colors.brown))
+                  : StreamBuilder<List<MessageModel>>(
+                      stream: _messagesStream,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return Center(
+                            child: CircularProgressIndicator(color: Colors.brown),
+                          );
+                        }
+                        
+                        if (snapshot.hasError) {
+                          return Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.error, color: Colors.red, size: 48),
+                                SizedBox(height: 16),
+                                Text(
+                                  'Error loading messages',
+                                  style: TextStyle(color: Colors.red),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+                        
+                        List<MessageModel> messages = snapshot.data ?? [];
+                        
+                        if (messages.isEmpty) {
+                          return Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.chat_bubble_outline,
+                                  size: 64,
+                                  color: Colors.grey[400],
+                                ),
+                                SizedBox(height: 16),
+                                Text(
+                                  'No Messages Yet',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Start the conversation by sending a message!',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[500],
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+                        
+                        // Reverse the list to show newest messages at bottom
+                        List<MessageModel> reversedMessages = messages.reversed.toList();
+                        
+                        return ListView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.all(16.0),
+                          itemCount: reversedMessages.length,
+                          itemBuilder: (context, index) {
+                            final message = reversedMessages[index];
+                            return _buildMessageBubble(message);
+                          },
+                        );
+                      },
+                    ),
             ),
           ),
           
@@ -249,8 +308,8 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  Widget _buildMessageBubble(Map<String, dynamic> message) {
-    final isMe = message['isMe'];
+  Widget _buildMessageBubble(MessageModel message) {
+    final isMe = message.senderId == _currentUser?.uid;
     
     return Container(
       margin: const EdgeInsets.only(bottom: 16.0),
@@ -291,16 +350,52 @@ class _ChatPageState extends State<ChatPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    message['text'],
-                    style: TextStyle(
-                      color: isMe ? Colors.white : Colors.black87,
-                      fontSize: 16,
+                  if (message.type == MessageType.image) ...[
+                    if (message.fileUrl != null)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          message.fileUrl!,
+                          width: 200,
+                          height: 150,
+                          fit: BoxFit.cover,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Container(
+                              width: 200,
+                              height: 150,
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  color: isMe ? Colors.white : Colors.brown,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    if (message.text.isNotEmpty && message.text != '📷 Image')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Text(
+                          message.text,
+                          style: TextStyle(
+                            color: isMe ? Colors.white : Colors.black87,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                  ] else ...[
+                    Text(
+                      message.text,
+                      style: TextStyle(
+                        color: isMe ? Colors.white : Colors.black87,
+                        fontSize: 16,
+                      ),
                     ),
-                  ),
+                  ],
                   const SizedBox(height: 4),
                   Text(
-                    message['timestamp'],
+                    _formatTimestamp(message.timestamp),
                     style: TextStyle(
                       color: isMe ? Colors.white70 : Colors.grey[500],
                       fontSize: 12,
@@ -325,5 +420,20 @@ class _ChatPageState extends State<ChatPage> {
         ],
       ),
     );
+  }
+  
+  String _formatTimestamp(Timestamp timestamp) {
+    final DateTime dateTime = timestamp.toDate();
+    final DateTime now = DateTime.now();
+    final Duration difference = now.difference(dateTime);
+    
+    if (difference.inDays > 0) {
+      return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
+    } else {
+      final hour = dateTime.hour > 12 ? dateTime.hour - 12 : (dateTime.hour == 0 ? 12 : dateTime.hour);
+      final minute = dateTime.minute.toString().padLeft(2, '0');
+      final period = dateTime.hour >= 12 ? 'PM' : 'AM';
+      return '$hour:$minute $period';
+    }
   }
 }
